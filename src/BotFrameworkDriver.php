@@ -2,22 +2,32 @@
 
 namespace BotMan\Drivers\BotFramework;
 
-use BotMan\BotMan\Users\User;
-use Illuminate\Support\Collection;
+use BotMan\BotMan\Drivers\Events\GenericEvent;
 use BotMan\BotMan\Drivers\HttpDriver;
-use BotMan\BotMan\Messages\Incoming\Answer;
 use BotMan\BotMan\Messages\Attachments\Image;
 use BotMan\BotMan\Messages\Attachments\Video;
-use BotMan\BotMan\Messages\Outgoing\Question;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\ParameterBag;
+use BotMan\BotMan\Messages\Incoming\Answer;
 use BotMan\BotMan\Messages\Incoming\IncomingMessage;
 use BotMan\BotMan\Messages\Outgoing\OutgoingMessage;
+use BotMan\BotMan\Messages\Outgoing\Question;
+use BotMan\BotMan\Users\User;
+use Illuminate\Support\Collection;
+use Symfony\Component\HttpFoundation\ParameterBag;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class BotFrameworkDriver extends HttpDriver
 {
     const DRIVER_NAME = 'BotFramework';
+
+    const GENERIC_EVENTS = [
+        'channelCreated',
+        'channelRenamed',
+        'channelDeleted',
+        'teamRenamed',
+        'teamMemberAdded',
+        'teamMemberRemoved',
+    ];
 
     protected $messages = [];
 
@@ -29,8 +39,8 @@ class BotFrameworkDriver extends HttpDriver
     public function buildPayload(Request $request)
     {
         $this->payload = new ParameterBag((array) json_decode($request->getContent(), true));
-        $this->event = Collection::make($this->payload->all());
-        $this->config = Collection::make($this->config->get('botframework'));
+        $this->event   = Collection::make($this->payload->all());
+        $this->config  = Collection::make($this->config->get('botframework'));
     }
 
     /**
@@ -42,7 +52,25 @@ class BotFrameworkDriver extends HttpDriver
     {
         $noAttachments = Collection::make($this->event->get('attachments'))->isEmpty();
 
-        return $noAttachments && (! is_null($this->event->get('recipient')) && ! is_null($this->event->get('serviceUrl')));
+        return $noAttachments && (!is_null($this->event->get('recipient')) && !is_null($this->event->get('serviceUrl')));
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasMatchingEvent()
+    {
+        $event = false;
+
+        if ($this->event->has('channelData') && $this->event->get('channelData')['eventType']) {
+            $event_name = $this->event->get('channelData')['eventType'];
+            $event      = new GenericEvent($this->event->toArray());
+            $event->setName($event_name);
+
+            return $event;
+        }
+
+        return $event;
     }
 
     /**
@@ -113,9 +141,9 @@ class BotFrameworkDriver extends HttpDriver
     {
         $replies = Collection::make($question->getButtons())->map(function ($button) {
             return array_merge([
-                'type' => 'imBack',
+                'type'  => 'imBack',
                 'title' => $button['text'],
-                'value' => $button['text'].'<botman value="'.$button['value'].'" />',
+                'value' => $button['text'] . '<botman value="' . $button['value'] . '" />',
             ], $button['additional']);
         });
 
@@ -125,10 +153,10 @@ class BotFrameworkDriver extends HttpDriver
     public function getAccessToken()
     {
         $response = $this->http->post('https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token', [], [
-            'client_id' => $this->config->get('app_id'),
+            'client_id'     => $this->config->get('app_id'),
             'client_secret' => $this->config->get('app_key'),
-            'grant_type' => 'client_credentials',
-            'scope' => 'https://api.botframework.com/.default',
+            'grant_type'    => 'client_credentials',
+            'scope'         => 'https://api.botframework.com/.default',
         ]);
         $responseData = json_decode($response->getContent());
 
@@ -154,28 +182,28 @@ class BotFrameworkDriver extends HttpDriver
             $parameters['attachments'] = [
                 [
                     'contentType' => 'application/vnd.microsoft.card.hero',
-                    'content' => [
-                        'text' => $message->getText(),
+                    'content'     => [
+                        'text'    => $message->getText(),
                         'buttons' => $this->convertQuestion($message),
                     ],
                 ],
             ];
         } elseif ($message instanceof OutgoingMessage) {
             $parameters['text'] = $message->getText();
-            $attachment = $message->getAttachment();
-            if (! is_null($attachment)) {
+            $attachment         = $message->getAttachment();
+            if (!is_null($attachment)) {
                 if ($attachment instanceof Image) {
                     $parameters['attachments'] = [
                         [
                             'contentType' => 'image/png',
-                            'contentUrl' => $attachment->getUrl(),
+                            'contentUrl'  => $attachment->getUrl(),
                         ],
                     ];
                 } elseif ($attachment instanceof Video) {
                     $parameters['attachments'] = [
                         [
                             'contentType' => 'video/mp4',
-                            'contentUrl' => $attachment->getUrl(),
+                            'contentUrl'  => $attachment->getUrl(),
                         ],
                     ];
                 }
@@ -187,10 +215,10 @@ class BotFrameworkDriver extends HttpDriver
         /**
          * Originated messages use the getSender method, otherwise getRecipient.
          */
-        $recipient = $matchingMessage->getRecipient() === '' ? $matchingMessage->getSender() : $matchingMessage->getRecipient();
-        $payload = is_null($matchingMessage->getPayload()) ? [] : $matchingMessage->getPayload()->all();
+        $recipient    = $matchingMessage->getRecipient() === '' ? $matchingMessage->getSender() : $matchingMessage->getRecipient();
+        $payload      = is_null($matchingMessage->getPayload()) ? [] : $matchingMessage->getPayload()->all();
         $this->apiURL = Collection::make($payload)->get('serviceUrl',
-                Collection::make($additionalParameters)->get('serviceUrl')).'/v3/conversations/'.urlencode($recipient).'/activities';
+            Collection::make($additionalParameters)->get('serviceUrl')) . '/v3/conversations/' . urlencode($recipient) . '/activities';
 
         if (strstr($this->apiURL, 'webchat.botframework')) {
             $parameters['from'] = [
@@ -209,7 +237,7 @@ class BotFrameworkDriver extends HttpDriver
     {
         $headers = [
             'Content-Type:application/json',
-            'Authorization:Bearer '.$this->getAccessToken(),
+            'Authorization:Bearer ' . $this->getAccessToken(),
         ];
 
         return $this->http->post($this->apiURL, [], $payload, $headers, true);
@@ -220,7 +248,7 @@ class BotFrameworkDriver extends HttpDriver
      */
     public function isConfigured()
     {
-        return ! empty($this->config->get('app_id')) && ! empty($this->config->get('app_key'));
+        return !empty($this->config->get('app_id')) && !empty($this->config->get('app_key'));
     }
 
     /**
@@ -235,12 +263,12 @@ class BotFrameworkDriver extends HttpDriver
     {
         $headers = [
             'Content-Type:application/json',
-            'Authorization:Bearer '.$this->getAccessToken(),
+            'Authorization:Bearer ' . $this->getAccessToken(),
         ];
 
         $apiURL = Collection::make($matchingMessage->getPayload())->get('serviceUrl',
             Collection::make($parameters)->get('serviceUrl'));
 
-        return $this->http->post($apiURL.'/v3/'.$endpoint, [], $parameters, $headers, true);
+        return $this->http->post($apiURL . '/v3/' . $endpoint, [], $parameters, $headers, true);
     }
 }
