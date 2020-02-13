@@ -50,7 +50,14 @@ class BotFrameworkDriver extends HttpDriver
      */
     public function matchesRequest()
     {
-        $noAttachments = Collection::make($this->event->get('attachments'))->isEmpty();
+        $attachments = Collection::make($this->event->get('attachments'));
+
+        $noAttachments = $attachments->isEmpty();
+        if (!$noAttachments && $attachments->count() == 1) {
+            if ($attachments->first()['contentType'] == "text/html") {
+                $noAttachments = true;
+            }
+        }
 
         return $noAttachments && (!is_null($this->event->get('recipient')) && !is_null($this->event->get('serviceUrl')));
     }
