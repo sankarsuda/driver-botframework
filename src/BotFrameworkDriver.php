@@ -216,7 +216,7 @@ class BotFrameworkDriver extends HttpDriver
                 }
             }
         } else {
-            $parameters['text'] = $message;
+            $parameters['text'] = nl2br($message);
         }
 
         /**
