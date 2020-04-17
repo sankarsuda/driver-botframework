@@ -109,6 +109,10 @@ class BotFrameworkDriver extends HttpDriver
         $pattern = '/<at id=(.*?)at>[^(\x20-\x7F)\x0A]*\s*/';
         $message = preg_replace($pattern, '', $this->event->get('text'));
 
+        // replace bot's name for group chats and special characters that might be sent from Teams group chat
+        $pattern = '/<at(.*?)at>[^(\x20-\x7F)\x0A]*\s*/';
+        $message = preg_replace($pattern, '', $message);
+
         if (empty($this->messages)) {
             $this->messages = [
                 new IncomingMessage($message, $this->event->get('from')['id'], $this->event->get('conversation')['id'],
